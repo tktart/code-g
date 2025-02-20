@@ -1,0 +1,152 @@
+//from5 ที่เปลี่ยน png เป็น jpg
+
+#include <SFML/Graphics.hpp>
+#include <iostream>
+#include <vector>
+#include <fstream>
+#include <algorithm>
+
+using namespace std;
+
+struct Player {
+    string name;
+    int score = 0;
+};
+
+struct HighScore {
+    string name;
+    int score = 0;
+};
+
+HighScore loadHighScore(const string& filename) {
+    ifstream file(filename);
+    HighScore hs;
+    if (file) {
+        file >> hs.name >> hs.score;
+    }
+    file.close();
+    return hs;
+}
+
+void saveHighScore(const HighScore& hs, const string& filename) {
+    ofstream file(filename);
+    if (file) {
+        file << hs.name << " " << hs.score;
+    }
+    file.close();
+}
+
+void loadWords(vector<string>& words, const string& filename) {
+    ifstream file(filename);
+    if (!file) {
+        cerr << "Error: Unable to open file " << filename << endl;
+        return;
+    }
+    string word;
+    while (file >> word) {
+        words.push_back(word);
+    }
+    file.close();
+}
+
+int main() {
+    sf::RenderWindow window(sf::VideoMode(800, 600), "Hangman Game");
+    
+    sf::Texture backgroundTexture;
+    if (!backgroundTexture.loadFromFile("background5.jpg")) {
+        cerr << "Error loading background5.jpg\n";
+    }
+    sf::Sprite background(backgroundTexture);
+    
+    vector<sf::Texture> hangmanTextures(7);
+    vector<sf::Sprite> hangmanSprites(7);
+    for (int i = 0; i <= 6; i++) {
+        string filename = "hangman" + to_string(i) + ".jpg";
+        if (!hangmanTextures[i].loadFromFile(filename)) {
+            cerr << "Error loading " << filename << "\n";
+        }
+        hangmanSprites[i].setTexture(hangmanTextures[i]);
+        hangmanSprites[i].setPosition(550, 100);
+    }
+    
+    string highScoreFile = "highscore.txt";
+    HighScore highScore = loadHighScore(highScoreFile);
+    
+    vector<Player> players;
+    while (true) {
+        cout << "Enter number of players (Max 4): ";
+        int numPlayers;
+        cin >> numPlayers;
+        cin.ignore();
+        
+        if (numPlayers > 4) {
+            cout << "Too many players! Enter again.\n";
+            continue;
+        }
+        
+        players.resize(numPlayers);
+        for (int i = 0; i < numPlayers; i++) {
+            cout << "Enter name for Player " << i + 1 << ": ";
+            getline(cin, players[i].name);
+        }
+        break;
+    }
+    
+    vector<string> words;
+    loadWords(words, "wordlist.txt");
+    if (words.empty()) {
+        cerr << "No words loaded. Exiting...\n";
+        return 1;
+    }
+    
+    string word = words[rand() % words.size()];
+    vector<bool> guessed(word.length(), false);
+    int incorrectGuesses = 0;
+    const int maxAttempts = 6;
+    int currentPlayer = 0;
+    
+    while (window.isOpen()) {
+        sf::Event event;
+        while (window.pollEvent(event)) {
+            if (event.type == sf::Event::Closed)
+                window.close();
+        }
+        
+        window.clear();
+        window.draw(background);
+        window.draw(hangmanSprites[incorrectGuesses]);
+        window.display();
+        
+        cout << "\n" << players[currentPlayer].name << "'s turn!\n";
+        cout << "Enter a letter: ";
+        char guess;
+        cin >> guess;
+        
+        bool correct = false;
+        for (size_t i = 0; i < word.length(); i++) {
+            if (word[i] == guess && !guessed[i]) {
+                guessed[i] = true;
+                correct = true;
+                players[currentPlayer].score += 10;
+            }
+        }
+        
+        if (!correct) {
+            incorrectGuesses++;
+            cout << "Wrong guess!\n";
+        }
+        
+        if (all_of(guessed.begin(), guessed.end(), [](bool g) { return g; })) {
+            cout << "You won!" << endl;
+            return 0; // ไปหน้า From6
+        }
+        
+        if (incorrectGuesses >= maxAttempts) {
+            cout << "Game Over!" << endl;
+            return 0; // ไปหน้า From7
+        }
+        
+        currentPlayer = (currentPlayer + 1) % players.size();
+    }
+    return 0;
+}
