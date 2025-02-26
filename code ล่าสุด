@@ -1,0 +1,447 @@
+//เปลี่ยน .ให้รับอักษรใหญ + เล็กได้  ล่าสุด
+#include <SFML/Graphics.hpp>
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <ctime>
+#include <algorithm>
+#include <sstream>
+
+using namespace sf;
+using namespace std;
+
+// Enum for Game States
+enum class GameState { From1, From2, From3, From4, From5, GamePlay, From6, From7 };
+GameState gameState = GameState::From1;
+
+// Store category and difficulty
+string selectedCategory;
+string selectedDifficulty;
+vector<string> words;
+
+// Player structure to hold player information
+struct Player {
+    string name;
+    int score = 0;
+};
+
+// UI Button Class
+class Button {
+public:
+    RectangleShape shape;
+    Text text;
+
+    Button(float x, float y, float width, float height, const string& buttonText, Font& font) {
+        shape.setSize(Vector2f(width, height));
+        shape.setPosition(x, y);
+        shape.setFillColor(Color::White);
+        shape.setOutlineColor(Color::Black);
+        shape.setOutlineThickness(2);
+
+        text.setFont(font);
+        text.setString(buttonText);
+        text.setCharacterSize(24);
+        text.setFillColor(Color::Black);
+
+        // Center the text
+        FloatRect textBounds = text.getLocalBounds();
+        text.setOrigin(textBounds.left + textBounds.width / 2, textBounds.top + textBounds.height / 2);
+        text.setPosition(x + width / 2, y + height / 2);
+    }
+
+    void draw(RenderWindow& window) {
+        window.draw(shape);
+        window.draw(text);
+    }
+
+    bool isClicked(Vector2f mousePos) {
+        return shape.getGlobalBounds().contains(mousePos);
+    }
+};
+
+// Function to update background texture based on game state
+void updateBackground(Texture& bgTexture, Sprite& background, RenderWindow& window) {
+    string bgFilename;
+
+    switch (gameState) {
+    case GameState::From1: bgFilename = "background1.jpg"; break;
+    case GameState::From2: bgFilename = "background2.jpg"; break;
+    case GameState::From3: bgFilename = "background3.jpg"; break;
+    case GameState::From4: bgFilename = "background4.jpg"; break;
+    case GameState::From5: bgFilename = "background5.jpg"; break;
+    case GameState::GamePlay: bgFilename = "hangman0.jpg"; break; // Set the initial hangman image
+    case GameState::From6: bgFilename = "background6.jpg"; break;
+    case GameState::From7: bgFilename = "background7.jpg"; break;
+    }
+
+    cout << bgFilename << endl;
+
+    if (!bgTexture.loadFromFile(bgFilename)) {
+        cerr << "Error loading background: " << bgFilename << endl;
+    }
+    else {
+        background.setTexture(bgTexture);
+        Vector2u textureSize = bgTexture.getSize();
+        Vector2u windowSize = window.getSize();
+        float scaleX = static_cast<float>(windowSize.x) / textureSize.x;
+        float scaleY = static_cast<float>(windowSize.y) / textureSize.y;
+        background.setScale(scaleX, scaleY);
+    }
+}
+
+// Function to load words from file
+// Function to load words from file
+void loadWordsFromFile() {
+    words.clear();
+    string filename = selectedCategory + selectedDifficulty + ".txt";
+    ifstream file(filename);
+    if (!file) {
+        cerr << "Error loading file: " << filename << endl;
+        return;
+    }
+
+    string word;
+    while (getline(file, word)) {
+        if (!word.empty()) { // ตรวจสอบว่าไม่เป็นคำเปล่า
+            words.push_back(word);  // เพิ่มคำเข้าไปใน vector
+        }
+    }
+    file.close();
+
+    // การตรวจสอบว่ามีคำใดๆ หรือไม่
+    if (words.empty()) {
+        std::cout << "Error: No words loaded from the file!" << std::endl;
+    }
+}
+
+vector<Player> players;
+int numPlayers = 0;          // Number of players
+int currentPlayerIndex = 0;  // Index of the current player
+string inputText;            // Input from the keyboard
+bool enteringPlayerCount = true;  // Currently entering the number of players
+bool enteringPlayerNames = false; // Currently entering player names
+bool waitingToStart = false;      // Waiting for enter to start the game
+bool gameStarted = false;
+
+// Game state variables
+string currentWord;
+vector<char> guessedLetters;
+int wrongGuesses = 0;
+Texture hangmanTextures[7]; // Array for hangman images
+Sprite hangmanSprite;
+
+
+// Load hangman images
+void loadHangmanImages() {
+    for (int i = 0; i < 7; i++) {
+        string filename = "hangman" + to_string(i) + ".jpg";
+        if (!hangmanTextures[i].loadFromFile(filename)) {
+            cerr << "Error loading hangman image: " << filename << endl;
+        }
+    }
+}
+
+// Function to process player input
+void processPlayerInput(Event event) {
+    if (event.type == Event::TextEntered) {
+        // Check the status of the input
+        if (gameState == GameState::From5 && enteringPlayerCount) {
+            if (event.text.unicode >= '1' && event.text.unicode <= '4') {
+                numPlayers = event.text.unicode - '0';
+                enteringPlayerCount = false;
+                enteringPlayerNames = true;
+                currentPlayerIndex = 0;
+                players.clear();
+            }
+        }
+        else if (enteringPlayerNames) {
+            // Check for player names
+            if (event.text.unicode == '\b' && !inputText.empty()) {
+                inputText.pop_back();
+            }
+            else if (event.text.unicode >= 32 && event.text.unicode <= 126) {
+                inputText += static_cast<char>(event.text.unicode);
+            }
+        }
+    }
+    else if (event.type == Event::KeyPressed && event.key.code == Keyboard::Enter) {
+        if (gameState == GameState::From5) {
+            if (enteringPlayerNames) {
+                if (!inputText.empty()) {
+                    players.push_back({ inputText, 0 });
+                    inputText.clear();
+                    currentPlayerIndex++;
+                    if (currentPlayerIndex >= numPlayers) {
+                        enteringPlayerNames = false;
+                        waitingToStart = true; // รอให้กด ENTER เพื่อเริ่มเกม
+                    }
+                }
+            }
+            else if (waitingToStart) {
+                waitingToStart = false;
+                gameStarted = true;
+                gameState = GameState::GamePlay; // เริ่มเกม
+
+                // โหลดคำให้ทายในตอนเริ่มเกม
+                if (!words.empty()) {
+                    currentWord = words.back(); // เลือกคำสุดท้ายจาก words
+                    words.pop_back(); // เอาคำออกจาก list
+                    guessedLetters.clear();
+                    wrongGuesses = 0;
+                    hangmanSprite.setTexture(hangmanTextures[wrongGuesses]); // แสดง hangman0
+                }
+                else {
+                    std::cout << "Error: No words available for gameplay!" << std::endl;
+                }
+            }
+        }
+    }
+}
+
+// Function ตรวจสอบคะแนนและจัดการกับผู้เล่นตามเงื่อนไข
+void processGuess(char guess) {
+    if (players.empty()) return; // ถ้าไม่มีผู้เล่นไม่ต้องทำงานต่อ
+
+    if (find(guessedLetters.begin(), guessedLetters.end(), guess) == guessedLetters.end()) {
+        guessedLetters.push_back(guess); // Record the guess
+
+        // ตรวจสอบให้แน่ใจว่า currentPlayerIndex อยู่ในขอบเขต
+        if (currentPlayerIndex >= 0 && currentPlayerIndex < players.size()) {
+            if (currentWord.find(guess) != string::npos) {
+                players[currentPlayerIndex].score += 2; // Award points
+            }
+            else {
+                players[currentPlayerIndex].score -= 1; // Deduct points
+                wrongGuesses++;
+                if (wrongGuesses < 7) {
+                    hangmanSprite.setTexture(hangmanTextures[wrongGuesses]); // Update hangman image
+                }
+            }
+            // Switch to the next player
+            currentPlayerIndex = (currentPlayerIndex + 1) % players.size();
+        }
+    }
+}
+
+// Function to display the gameplay screen
+void drawGame(RenderWindow& window, Font& font) {
+    window.clear(); // ล้างหน้าต่าง
+    window.draw(hangmanSprite); // แสดงภาพ hangman
+
+    // แสดงชื่อผู้เล่นและคะแนน
+    for (size_t i = 0; i < players.size(); i++) {
+        Text playerDisplay(players[i].name + ": " + to_string(players[i].score), font, 24);
+        playerDisplay.setPosition(50, 100 + i * 30); // ปรับตำแหน่งให้แสดงด้านซ้าย
+
+        // เปลี่ยนสีของชื่อผู้เล่น
+        if (i == currentPlayerIndex) {
+            playerDisplay.setFillColor(Color::Red); // ทำให้ชื่อผู้เล่นปัจจุบันเป็นสีแดง
+        }
+        else {
+            playerDisplay.setFillColor(Color::Black); // ทำให้ชื่อผู้เล่นที่เหลือเป็นสีดำ
+        }
+        window.draw(playerDisplay); // แสดงคะแนนที่ปรับสีแล้ว
+    }
+
+    // แสดงจำนวนการทาย
+    Text guessCountText("Wrong guesses: " + to_string(wrongGuesses), font, 24);
+    guessCountText.setPosition(50, 260); // ปรับตำแหน่งให้แสดงด้านซ้าย
+    window.draw(guessCountText);
+
+    // แสดงคำที่ทายอยู่
+    string displayedWord;
+    for (char c : currentWord) {
+        if (find(guessedLetters.begin(), guessedLetters.end(), c) != guessedLetters.end()) {
+            displayedWord += c; // แสดงตัวอักษรที่ทายถูก
+        }
+        else {
+            displayedWord += '_'; // แสดง _ ถ้ายังไม่ทาย
+        }
+        displayedWord += ' '; // เพิ่มช่องว่างระหว่างตัวอักษร
+    }
+
+    // ส่งข้อความที่แสดงคำไปที่หน้าจอ
+    Text wordText("Current word: " + displayedWord, font, 32);
+    wordText.setPosition(100, 150);
+    window.draw(wordText);
+
+    // ตรวจสอบเงื่อนไขการชนะ/แพ้
+    if (wrongGuesses >= 6) {
+        gameState = GameState::From7; // แพ้
+    }
+    else if (std::all_of(currentWord.begin(), currentWord.end(),
+        [&](char c) { return find(guessedLetters.begin(), guessedLetters.end(), c) != guessedLetters.end(); })) {
+        gameState = GameState::From6; // ชนะ
+    }
+}
+
+// Function to display player input prompts
+void drawPlayerInput(RenderWindow& window, Font& font) {
+    if (gameState == GameState::From5) {
+        if (enteringPlayerCount) {
+            Text playerCountText("Enter number of players (1-4): ", font, 32);
+            playerCountText.setPosition(100, 100);
+            window.draw(playerCountText);
+        }
+        else if (enteringPlayerNames) {
+            string prompt = "Enter name for Player " + to_string(currentPlayerIndex + 1) + ": " + inputText;
+            Text playerNameText(prompt, font, 32);
+            playerNameText.setPosition(100, 150);
+            window.draw(playerNameText);
+        }
+        else if (waitingToStart) {
+            Text startText("Press ENTER to start the game", font, 32);
+            startText.setPosition(100, 200);
+            window.draw(startText);
+        }
+    }
+}
+
+int main() {
+    RenderWindow window(VideoMode(1000, 600), "Hangman SFML");
+    Font font;
+
+    // โหลดฟอนต์
+    if (!font.loadFromFile("arial.ttf")) {
+        cerr << "Error loading font!" << endl;
+        return -1;
+    }
+
+    // โหลดภาพ hangman ก่อนเริ่มเกม
+    loadHangmanImages();
+
+    Texture bgTexture;
+    Sprite background;
+    updateBackground(bgTexture, background, window);
+
+    Button startButton(220, 285, 240, 72, "Start", font);
+    vector<Button> categoryButtons = {
+        Button(230, 180, 200, 60, "Animal", font),
+        Button(550, 180, 200, 60, "Things", font),
+        Button(230, 300, 200, 60, "Career", font),
+        Button(550, 300, 200, 60, "Country", font),
+        Button(390, 420, 200, 60, "Faculty", font)
+    };
+    Button backButtonFrom2(50, 500, 100, 50, "Back", font);
+    Button easyButton(390, 200, 220, 65, "Easy", font);
+    Button hardButton(390, 340, 220, 65, "Hard", font);
+    Button backButtonFrom3(50, 500, 100, 50, "Back", font);
+    Button yesButton(310, 420, 100, 60, "Yes", font);
+    Button noButton(580, 420, 100, 60, "No", font);
+
+    while (window.isOpen()) {
+        Event event;
+        while (window.pollEvent(event)) {
+            if (event.type == Event::Closed)
+                window.close();
+
+            if (event.type == Event::MouseButtonPressed && event.mouseButton.button == Mouse::Left) {
+                Vector2f mousePos(event.mouseButton.x, event.mouseButton.y);
+                if (gameState == GameState::From1 && startButton.isClicked(mousePos)) {
+                    gameState = GameState::From2;
+                    updateBackground(bgTexture, background, window);
+                }
+                else if (gameState == GameState::From2) {
+                    for (auto& btn : categoryButtons) {
+                        if (btn.isClicked(mousePos)) {
+                            selectedCategory = btn.text.getString();
+                            gameState = GameState::From3;
+                            updateBackground(bgTexture, background, window);
+                        }
+                    }
+                    if (backButtonFrom2.isClicked(mousePos)) {
+                        gameState = GameState::From1;
+                        updateBackground(bgTexture, background, window);
+                    }
+                }
+                else if (gameState == GameState::From3) {
+                    if (easyButton.isClicked(mousePos)) {
+                        selectedDifficulty = "_e";
+                        gameState = GameState::From4;
+                        updateBackground(bgTexture, background, window);
+                    }
+                    else if (hardButton.isClicked(mousePos)) {
+                        selectedDifficulty = "_h";
+                        gameState = GameState::From4;
+                        updateBackground(bgTexture, background, window);
+                    }
+                    if (backButtonFrom3.isClicked(mousePos)) {
+                        gameState = GameState::From2;
+                        updateBackground(bgTexture, background, window);
+                    }
+                }
+                else if (gameState == GameState::From4) {
+                    if (yesButton.isClicked(mousePos)) {
+                        loadWordsFromFile();
+                        gameState = GameState::From5;
+                        updateBackground(bgTexture, background, window);
+                    }
+                    else if (noButton.isClicked(mousePos)) {
+                        gameState = GameState::From3;
+                        updateBackground(bgTexture, background, window);
+                    }
+                }
+
+            }
+
+          
+
+            if (event.type == Event::KeyPressed) {
+                if (gameState == GameState::From5) {
+                    if (waitingToStart && event.key.code == Keyboard::Enter) {
+                        gameState = GameState::GamePlay;
+                        updateBackground(bgTexture, background, window);
+                    }
+                }
+            }
+
+            
+            // Handle keyboard input
+            processPlayerInput(event); // Call the input processing function
+
+            if (gameState == GameState::GamePlay) {
+                if (event.type == Event::KeyPressed) {
+                    // ตรวจสอบว่ารับตัวอักษร A-Z หรือ a-z
+                    if (event.key.code >= Keyboard::A && event.key.code <= Keyboard::Z) {
+                        char guess = 'A' + (event.key.code - Keyboard::A); // แปลงตัวอักษรพิมพ์ใหญ่
+                        processGuess(guess); // ประมวลผลการทายของผู้เล่นปัจจุบัน
+                    }
+                    else if (event.key.code >= Keyboard::A + 32 && event.key.code <= Keyboard::Z + 32) {
+                        // ถ้าตัวอักษรเป็นพิมพ์เล็ก
+                        char guess = 'A' + (event.key.code - (Keyboard::A + 32)); // แปลงเป็นตัวพิมพ์ใหญ่
+                        processGuess(guess); // ประมวลผลการทายของผู้เล่นปัจจุบัน
+                    }
+                }
+            }
+        }
+
+        window.clear();
+        window.draw(background);
+
+        if (gameState == GameState::From1) startButton.draw(window);
+        else if (gameState == GameState::From2) {
+            for (auto& btn : categoryButtons) btn.draw(window);
+            backButtonFrom2.draw(window);
+        }
+        else if (gameState == GameState::From3) {
+            easyButton.draw(window);
+            hardButton.draw(window);
+            backButtonFrom3.draw(window);
+        }
+        else if (gameState == GameState::From4) {
+            yesButton.draw(window);
+            noButton.draw(window);
+        }
+        else if (gameState == GameState::From5) {
+            drawPlayerInput(window, font); // Draw input prompts
+        }
+        else if (gameState == GameState::GamePlay) {
+            drawGame(window, font); // Draw gameplay screen
+        }
+
+        window.display();
+    }
+    return 0;
+}
+
+
